@@ -1,0 +1,101 @@
+Аналіз неоптимального запиту
+
+QUERY PLAN
+HashAggregate  (cost=7366.16..7394.18 rows=2802 width=22) (actual time=131.595..134.568 rows=805.00 loops=1)
+  Group Key: c.full_name
+  Batches: 1  Memory Usage: 153kB
+  Buffers: shared hit=3777
+  ->  Gather  (cost=2190.45..7336.89 rows=5855 width=22) (actual time=4.886..132.790 rows=7557.00 loops=1)
+        Workers Planned: 2
+        Workers Launched: 2
+        Buffers: shared hit=3777
+        ->  Hash Join  (cost=1190.45..5751.39 rows=2440 width=22) (actual time=1.510..9.583 rows=2519.00 loops=3)
+              Hash Cond: (t.card_id = cd.id)
+              Buffers: shared hit=3777
+              ->  Parallel Seq Scan on transactions t  (cost=0.00..4348.67 rows=50100 width=12) (actual time=0.004..5.611 rows=39987.00 loops=3)
+                    Disabled: true
+                    Filter: (type = 'purchase'::text)
+                    Rows Removed by Filter: 26680
+                    Buffers: shared hit=3307
+              ->  Hash  (cost=1178.27..1178.27 rows=974 width=18) (actual time=4.510..4.514 rows=958.00 loops=1)
+                    Buckets: 1024  Batches: 1  Memory Usage: 57kB
+                    Buffers: shared hit=470
+                    ->  Hash Join  (cost=774.53..1178.27 rows=974 width=18) (actual time=3.131..4.408 rows=958.00 loops=1)
+                          Hash Cond: (cd.account_id = a.id)
+                          Buffers: shared hit=470
+                          ->  Seq Scan on cards cd  (cost=0.00..381.00 rows=3468 width=8) (actual time=0.013..0.946 rows=3465.00 loops=1)
+                                Disabled: true
+                                Filter: ((brand = 'Visa'::text) AND (status = 'active'::text))
+                                Rows Removed by Filter: 11535
+                                Buffers: shared hit=156
+                          ->  Hash  (cost=721.98..721.98 rows=4204 width=18) (actual time=3.080..3.083 rows=4198.00 loops=1)
+                                Buckets: 8192  Batches: 1  Memory Usage: 275kB
+                                Buffers: shared hit=314
+                                ->  Hash Join  (cost=305.10..721.98 rows=4204 width=18) (actual time=0.902..2.646 rows=4198.00 loops=1)
+                                      Hash Cond: (a.customer_id = c.id)
+                                      Buffers: shared hit=314
+                                      ->  Seq Scan on accounts a  (cost=0.00..318.70 rows=14970 width=8) (actual time=0.007..0.522 rows=14970.00 loops=1)
+                                            Disabled: true
+                                            Buffers: shared hit=169
+                                      ->  Hash  (cost=270.00..270.00 rows=2808 width=18) (actual time=0.890..0.891 rows=2808.00 loops=1)
+                                            Buckets: 4096  Batches: 1  Memory Usage: 174kB
+                                            Buffers: shared hit=145
+                                            ->  Seq Scan on customers c  (cost=0.00..270.00 rows=2808 width=18) (actual time=0.005..0.649 rows=2808.00 loops=1)
+                                                  Disabled: true
+                                                  Filter: (country = 'United States'::text)
+                                                  Rows Removed by Filter: 7192
+                                                  Buffers: shared hit=145
+Planning Time: 0.156 ms
+Execution Time: 134.859 ms
+
+
+
+Аналіз оптимізованого запиту
+
+QUERY PLAN
+HashAggregate  (cost=5559.81..5587.83 rows=2802 width=22) (actual time=12.854..12.931 rows=805.00 loops=1)
+  Group Key: customers.full_name
+  Batches: 1  Memory Usage: 153kB
+  Buffers: shared hit=11595 read=176
+  ->  Nested Loop  (cost=774.80..5530.53 rows=5855 width=22) (actual time=2.997..11.744 rows=7557.00 loops=1)
+        Buffers: shared hit=11595 read=176
+        ->  Hash Join  (cost=774.51..1005.27 rows=974 width=18) (actual time=2.981..4.070 rows=958.00 loops=1)
+              Hash Cond: (cards.account_id = a.id)
+              Buffers: shared hit=470 read=9
+              ->  Bitmap Heap Scan on cards  (cost=51.83..259.85 rows=3468 width=8) (actual time=0.116..0.526 rows=3465.00 loops=1)
+                    Recheck Cond: ((brand = 'Visa'::text) AND (status = 'active'::text))
+                    Heap Blocks: exact=156
+                    Buffers: shared hit=156 read=5
+                    ->  Bitmap Index Scan on idx_cards_brand_status  (cost=0.00..50.96 rows=3468 width=0) (actual time=0.092..0.092 rows=3465.00 loops=1)
+                          Index Cond: ((brand = 'Visa'::text) AND (status = 'active'::text))
+                          Index Searches: 1
+                          Buffers: shared read=5
+              ->  Hash  (cost=670.12..670.12 rows=4204 width=18) (actual time=2.841..2.843 rows=4198.00 loops=1)
+                    Buckets: 8192  Batches: 1  Memory Usage: 275kB
+                    Buffers: shared hit=314 read=4
+                    ->  Hash Join  (cost=253.25..670.12 rows=4204 width=18) (actual time=0.708..2.439 rows=4198.00 loops=1)
+                          Hash Cond: (a.customer_id = customers.id)
+                          Buffers: shared hit=314 read=4
+                          ->  Seq Scan on accounts a  (cost=0.00..318.70 rows=14970 width=8) (actual time=0.007..0.493 rows=14970.00 loops=1)
+                                Buffers: shared hit=169
+                          ->  Hash  (cost=218.15..218.15 rows=2808 width=18) (actual time=0.688..0.689 rows=2808.00 loops=1)
+                                Buckets: 4096  Batches: 1  Memory Usage: 174kB
+                                Buffers: shared hit=145 read=4
+                                ->  Bitmap Heap Scan on customers  (cost=38.05..218.15 rows=2808 width=18) (actual time=0.083..0.422 rows=2808.00 loops=1)
+                                      Recheck Cond: (country = 'United States'::text)
+                                      Heap Blocks: exact=145
+                                      Buffers: shared hit=145 read=4
+                                      ->  Bitmap Index Scan on idx_customers_country  (cost=0.00..37.34 rows=2808 width=0) (actual time=0.067..0.067 rows=2808.00 loops=1)
+                                            Index Cond: (country = 'United States'::text)
+                                            Index Searches: 1
+                                            Buffers: shared read=4
+        ->  Index Scan using idx_transactions_card_id on transactions  (cost=0.29..4.58 rows=7 width=12) (actual time=0.003..0.007 rows=7.89 loops=958)
+              Index Cond: (card_id = cards.id)
+              Filter: (type = 'purchase'::text)
+              Rows Removed by Filter: 2
+              Index Searches: 958
+              Buffers: shared hit=11125 read=167
+Planning:
+  Buffers: shared hit=102 read=15
+Planning Time: 5.349 ms
+Execution Time: 13.112 ms
